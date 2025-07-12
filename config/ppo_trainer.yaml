@@ -213,6 +213,7 @@ trainer:
 
 reward_config:
   alpha: 0.01
+  beta:  0.01
   sigmoid_reward: False
   linear_reward: False
   multiplier_reward: False
