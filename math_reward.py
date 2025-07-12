@@ -25,63 +25,95 @@ class RewardMathFn(RewardFn):
     """
     Reward function for evaluating mathematical answers.
 
-    This class implements the __call__ method to process the input and determine
-    the reward based on the correctness of the provided answer compared to the ground truth.
+    New formula:
+        r = 1[y=y_gold] 
+            - alpha * |n_gold - n_y| 
+            - beta  * h(y)
+    where h(y) = count_hedging_markers(y).
     """
 
-    def __call__(self, input: RewardInput, ignore_think_token = False) -> RewardOutput:
+    def __call__(self, input: RewardInput, ignore_think_token: bool = False) -> RewardOutput:
         assert input.problem_type == RewardType.MATH, \
-            "Invalid problem type: expected 'MATH', but got '{}'".format(input.problem_type)
+            f"Invalid problem type: expected 'MATH', but got '{input.problem_type}'"
         
-        problem = input.problem
         model_response = input.model_response
-        
-        # Extract solution.
+
+        # 1) Extract the “solution” portion (after any <think>…</think>)
         if THOUGHT_DELIMITER_START in model_response and THOUGHT_DELIMITER_END in model_response:
-            model_solution = model_response.split(THOUGHT_DELIMITER_END)[1]
+            response_text = model_response.split(THOUGHT_DELIMITER_END, 1)[1].strip()
         elif THOUGHT_DELIMITER_END in model_response:
-            model_solution = model_response.split(THOUGHT_DELIMITER_END)[1]
+            response_text = model_response.split(THOUGHT_DELIMITER_END, 1)[1].strip()
         else:
             if not ignore_think_token:
-                return RewardOutput(reward=self.config.format_error_reward, is_correct=False)
-            else:
-                model_solution = model_response
-        
-        model_answer = extract_answer(model_solution)
-        if model_answer is None:
-            return RewardOutput(reward=self.config.format_error_reward, is_correct=False)
+                return RewardOutput(
+                    reward=self.config.format_error_reward,
+                    is_correct=False
+                )
+            response_text = model_response.strip()
 
-        # Process the ground truth(s)
+        # 2) Pull out the final answer
+        model_answer = extract_answer(response_text)
+        if model_answer is None:
+            return RewardOutput(
+                reward=self.config.format_error_reward,
+                is_correct=False
+            )
+
+        # 3) Load and normalize ground truths
         ground_truths = input.ground_truth.get("answer", None)
         if ground_truths is None:
-            return RewardOutput(reward=self.config.unk_error_reward, is_correct=False)
-        
-        # Convert single answer to list for uniform processing
+            return RewardOutput(
+                reward=self.config.unk_error_reward,
+                is_correct=False
+            )
         if isinstance(ground_truths, (str, float, int)):
             ground_truths = [ground_truths]
-            
-        # Process each ground truth
-        processed_ground_truths = []
+
+        processed_ground_truths: List[str] = []
         for truth in ground_truths:
             truth = str(truth)
             if "\\boxed" in truth:
-                processed_truth = extract_answer(truth)
-                if processed_truth is not None:
-                    processed_ground_truths.append(processed_truth)
+                ext = extract_answer(truth)
+                if ext is not None:
+                    processed_ground_truths.append(ext)
             else:
                 processed_ground_truths.append(truth)
-        
         if not processed_ground_truths:
-            return RewardOutput(reward=self.config.unk_error_reward, is_correct=False)
+            return RewardOutput(
+                reward=self.config.unk_error_reward,
+                is_correct=False
+            )
 
-        # Check against all possible correct answers
-        for ground_truth in processed_ground_truths:
-            is_correct = grade_answer_mathd(model_answer, ground_truth) or grade_answer_sympy(model_answer, ground_truth)
-            if is_correct:
-                return RewardOutput(reward=self.config.correct_reward, is_correct=True)
+        # 4) Determine correctness
+        is_correct = False
+        for truth in processed_ground_truths:
+            if grade_answer_mathd(model_answer, truth) or grade_answer_sympy(model_answer, truth):
+                is_correct = True
+                break
 
-     
-        return RewardOutput(reward=self.config.incorrect_reward, is_correct=False)
+        # 5) Compute base reward
+        base_reward = 1.0 if is_correct else 0.0
+
+        # 6) Compute length‐deviation penalty
+        #    n_gold = number of words in the *first* ground truth
+        n_gold = len(processed_ground_truths[0].split())
+        n_y    = len(response_text.split())
+        length_pen = self.config.alpha * abs(n_gold - n_y)
+
+        # 7) Compute hedging penalty
+        h_count   = count_hedging_markers(response_text)
+        hedge_pen = self.config.beta * h_count
+
+        # 8) Final reward
+        reward = base_reward - length_pen - hedge_pen
+        # optionally clamp to [0, 1]
+        reward = max(0.0, min(1.0, reward))
+
+        return RewardOutput(
+            reward=reward,
+            is_correct=is_correct
+        )
+
 
 def get_delta_score(num_tokens: int, used_tokens: int):
     # Stddev = num_tokens/5
