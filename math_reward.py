@@ -9,7 +9,7 @@ import re
 
 
 from rewards_types import RewardConfig, RewardFn, RewardInput, RewardOutput, RewardType
-from utils import extract_answer, grade_answer_sympy, grade_answer_mathd
+from utils import extract_answer, grade_answer_sympy, grade_answer_mathd, count_hedging_markers
 import random
 import numpy as np
 
