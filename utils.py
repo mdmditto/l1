@@ -10,6 +10,26 @@ from sympy.parsing import sympy_parser
 from typing import Optional
 
 
+def count_hedging_markers(text: str) -> int:
+    """
+    Count occurrences of common “hedging” words/phrases in the given text from the paper Think deep Think Fast.
+    """
+    hedging_words = [
+        "perhaps",
+        "maybe",
+        "possibly",
+        "it seems",
+        "might",
+        "could"
+    ]
+    # build a regex that matches any of these as whole words/phrases
+    pattern = re.compile(
+        r"\b(" + "|".join(map(re.escape, hedging_words)) + r")\b",
+        flags=re.IGNORECASE
+    )
+    return len(pattern.findall(text))
+
+
 # Dan Hendrycks' code
 def mathd_normalize_answer(answer: Optional[str]) -> Optional[str]:
     if answer is None:
