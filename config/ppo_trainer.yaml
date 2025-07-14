@@ -77,6 +77,7 @@ actor_rollout_ref:
   rollout:
     multi_turn:
       enable: false
+      tool_config_path: null
     name: vllm
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
