@@ -80,6 +80,7 @@ actor_rollout_ref:
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
   rollout:
+    mode: inference
     multi_turn:
       enable: false
       tool_config_path: null
