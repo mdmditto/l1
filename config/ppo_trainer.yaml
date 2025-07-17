@@ -88,6 +88,10 @@ actor_rollout_ref:
       max_user_turns: 1
       interaction_config_path: null
     name: vllm
+    vllm_config:
+      model: agentica-org/DeepScaleR-1.5B-Preview
+      engine_args:
+        max_batch_size: 8
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
