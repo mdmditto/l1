@@ -28,6 +28,7 @@ actor_rollout_ref:
     enable_gradient_checkpointing: True
     use_remove_padding: False
   actor:
+    entropy_from_logits_with_chunking: false
     strategy: fsdp  # This is for backward-compatibility
     ppo_mini_batch_size: 256
     ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
