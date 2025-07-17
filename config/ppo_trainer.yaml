@@ -64,8 +64,8 @@ actor_rollout_ref:
       wrap_policy:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
-      param_offload: False
-      optimizer_offload: False
+      param_offload: True
+      optimizer_offload: True
       fsdp_size: -1
   ref:
     fsdp_config:
