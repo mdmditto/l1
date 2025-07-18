@@ -106,6 +106,8 @@ class RewardMathFn(RewardFn):
 
         # 8) Final reward
         reward = base_reward - length_pen - hedge_pen
+        print("BASE:", base_reward," | LENGTH_PEN:", length_pen, " | HEDGE_PEN:", hedge_pen)
+        print(" RAW REWARD:", base_reward - length_pen - hedge_pen)
         # optionally clamp to [0, 1]
         reward = max(0.0, min(1.0, reward))
 
