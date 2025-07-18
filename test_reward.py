@@ -1,17 +1,15 @@
-# test_math_reward.py
+# test_reward.py
+import sys; sys.path.insert(0, ".")
 from math_reward import RewardMathFn
-from rewards_types import RewardInput, RewardType, RewardConfig
+from rewards_types import RewardConfig, RewardInput, RewardType
 
-# 1) Build a RewardConfig with your α/β
 cfg = RewardConfig()
-cfg.alpha = 0.1   # length penalty weight
-cfg.beta  = 0.2   # hedging penalty weight
+cfg.alpha = 0.1
+cfg.beta  = 0.2
 
-# 2) Instantiate your reward fn
 reward_fn = RewardMathFn(cfg)
 
-# 3) Helper to run one test
-def run_case(resp:str, truth, desc:str):
+def run_case(resp, truth, desc):
     inp = RewardInput(
         problem="",
         problem_type=RewardType.MATH,
@@ -19,16 +17,21 @@ def run_case(resp:str, truth, desc:str):
         ground_truth={"answer": truth}
     )
     out = reward_fn(inp)
-    print(f"{desc:20s} → reward={out.reward:0.3f}, correct={out.is_correct}")
+    # grab the raw numbers by re-computing inside test:
+    # (you can also add debug prints inside RewardMathFn itself)
+    # but let's just print what we got:
+    print(
+        f"{desc:25s} → reward={out.reward:.3f}  correct={out.is_correct}"
+    )
 
-# 4) Test cases
-run_case("The answer is \\boxed{42}",              "42",    "Exact correct")
-run_case("Answer: 42  ",                            "42",    "No box but correct")
-run_case("I think maybe the answer is \\boxed{42}", "42",    "Hedging word ‘maybe’")
-run_case("The answer is \\boxed{24}",               "42",    "Wrong answer")
-run_case("<think>…</think> 42",                     "42",    "With CoT tags")
-run_case("42 but extra words here to bloat length", "42",    "Length deviation")
+cases = [
+    ("The answer is \\boxed{42}", "42", "Exact correct"),
+    ("Answer: 42",               "42", "No box but correct"),
+    ("I think maybe \\boxed{42}", "42", "With hedging"),
+    ("\\boxed{24}",              "42", "Wrong answer"),
+    ("<think>…</think> 42",      "42", "With CoT tags"),
+    ("42 extra words here",      "42", "Length deviation"),
+]
 
-# 5) If you have the math_reward_fn wrapper, you can also do:
-from math_reward import math_reward_fn
-print("Wrapper call:", math_reward_fn("42", "42", num_tokens=1, valid_response_length=3, reward_config=cfg))
+for resp, truth, desc in cases:
+    run_case(resp, truth, desc)
