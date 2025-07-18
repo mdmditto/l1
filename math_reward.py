@@ -277,4 +277,3 @@ if __name__ == "__main__":
         ground_truth={"answer": "1"}
     )
     print(reward(inp))
-```
