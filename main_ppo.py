@@ -20,6 +20,7 @@ import torch
 from verl.utils.reward_score import gsm8k, math
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from rewards_types import RewardConfig
+torch.cuda.empty_cache()
 
 import sys
 from math_reward import math_reward_fn
