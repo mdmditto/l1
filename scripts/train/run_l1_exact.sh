@@ -58,7 +58,7 @@ python3 main_ppo.py \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='deepscaler' \
+    trainer.project_name='deepscaler1' \
     trainer.experiment_name='l1_exact' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
