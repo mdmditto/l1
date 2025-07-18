@@ -25,97 +25,63 @@ class RewardMathFn(RewardFn):
     """
     Reward function for evaluating mathematical answers.
 
-    New formula:
-        r = 1[y=y_gold] 
-            - alpha * |n_gold - n_y| 
-            - beta  * h(y)
-    where h(y) = count_hedging_markers(y).
+    This class implements the __call__ method to process the input and determine
+    the reward based on the correctness of the provided answer compared to the ground truth.
     """
 
-    def __call__(self, input: RewardInput, ignore_think_token: bool = False) -> RewardOutput:
+    def __call__(self, input: RewardInput, ignore_think_token = False) -> RewardOutput:
         assert input.problem_type == RewardType.MATH, \
-            f"Invalid problem type: expected 'MATH', but got '{input.problem_type}'"
+            "Invalid problem type: expected 'MATH', but got '{}'".format(input.problem_type)
         
+        problem = input.problem
         model_response = input.model_response
-
-        # 1) Extract the “solution” portion (after any <think>…</think>)
+        
+        # Extract solution.
         if THOUGHT_DELIMITER_START in model_response and THOUGHT_DELIMITER_END in model_response:
-            response_text = model_response.split(THOUGHT_DELIMITER_END, 1)[1].strip()
+            model_solution = model_response.split(THOUGHT_DELIMITER_END)[1]
         elif THOUGHT_DELIMITER_END in model_response:
-            response_text = model_response.split(THOUGHT_DELIMITER_END, 1)[1].strip()
+            model_solution = model_response.split(THOUGHT_DELIMITER_END)[1]
         else:
             if not ignore_think_token:
-                return RewardOutput(
-                    reward=self.config.format_error_reward,
-                    is_correct=False
-                )
-            response_text = model_response.strip()
-
-        # 2) Pull out the final answer
-        model_answer = extract_answer(response_text)
+                return RewardOutput(reward=self.config.format_error_reward, is_correct=False)
+            else:
+                model_solution = model_response
+        
+        model_answer = extract_answer(model_solution)
         if model_answer is None:
-            return RewardOutput(
-                reward=self.config.format_error_reward,
-                is_correct=False
-            )
+            return RewardOutput(reward=self.config.format_error_reward, is_correct=False)
 
-        # 3) Load and normalize ground truths
+        # Process the ground truth(s)
         ground_truths = input.ground_truth.get("answer", None)
         if ground_truths is None:
-            return RewardOutput(
-                reward=self.config.unk_error_reward,
-                is_correct=False
-            )
+            return RewardOutput(reward=self.config.unk_error_reward, is_correct=False)
+        
+        # Convert single answer to list for uniform processing
         if isinstance(ground_truths, (str, float, int)):
             ground_truths = [ground_truths]
-
-        processed_ground_truths: List[str] = []
+            
+        # Process each ground truth
+        processed_ground_truths = []
         for truth in ground_truths:
             truth = str(truth)
             if "\\boxed" in truth:
-                ext = extract_answer(truth)
-                if ext is not None:
-                    processed_ground_truths.append(ext)
+                processed_truth = extract_answer(truth)
+                if processed_truth is not None:
+                    processed_ground_truths.append(processed_truth)
             else:
                 processed_ground_truths.append(truth)
+        
         if not processed_ground_truths:
-            return RewardOutput(
-                reward=self.config.unk_error_reward,
-                is_correct=False
-            )
+            return RewardOutput(reward=self.config.unk_error_reward, is_correct=False)
 
-        # 4) Determine correctness
-        is_correct = False
-        for truth in processed_ground_truths:
-            if grade_answer_mathd(model_answer, truth) or grade_answer_sympy(model_answer, truth):
-                is_correct = True
-                break
+        # Check against all possible correct answers
+        for ground_truth in processed_ground_truths:
+            is_correct = grade_answer_mathd(model_answer, ground_truth) or grade_answer_sympy(model_answer, ground_truth)
+            if is_correct:
+                return RewardOutput(reward=self.config.correct_reward, is_correct=True)
 
-        # 5) Compute base reward
-        base_reward = 1.0 if is_correct else 0.0
-
-        # 6) Compute length‐deviation penalty
-        #    n_gold = number of words in the *first* ground truth
-        n_gold = len(processed_ground_truths[0].split())
-        n_y    = len(response_text.split())
-        length_pen = self.config.alpha * abs(n_gold - n_y)
-
-        # 7) Compute hedging penalty
-        h_count   = count_hedging_markers(response_text)
-        hedge_pen = self.config.beta * h_count
-
-        # 8) Final reward
-        reward = base_reward - length_pen - hedge_pen
-        print("BASE:", base_reward," | LENGTH_PEN:", length_pen, " | HEDGE_PEN:", hedge_pen)
-        print(" RAW REWARD:", base_reward - length_pen - hedge_pen)
-        # optionally clamp to [0, 1]
-        reward = max(0.0, min(1.0, reward))
-
-        return RewardOutput(
-            reward=reward,
-            is_correct=is_correct
-        )
-
+     
+        return RewardOutput(reward=self.config.incorrect_reward, is_correct=False)
 
 def get_delta_score(num_tokens: int, used_tokens: int):
     # Stddev = num_tokens/5
@@ -174,6 +140,17 @@ def get_binary_score(num_tokens: int, used_tokens: int):
     else:
         return 1.0
 
+# --- Hedging delta functions ---
+
+def get_delta_score_hedge_linear(hedge_count: int, beta: float) -> float:
+    """Linearly decays from 1.0 by beta per hedge marker."""
+    return max(0.0, 1.0 - beta * hedge_count)
+
+def get_delta_score_hedge_sigmoid(hedge_count: int, beta: float) -> float:
+    """Smooth sigmoid decay based on hedge count."""
+    delta = hedge_count * beta
+    return 1.0 / (1.0 + math.exp(delta))
+
 def gpqa_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], enable_llm = False, num_tokens = -1, valid_response_length = -1):
     reward_config = RewardConfig()
     reward_config.use_math_orm = enable_llm
@@ -191,40 +168,88 @@ def gpqa_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], enabl
     else:
         return 0.0
 
-def math_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], num_tokens = -1, valid_response_length = -1, ignore_think_token = False, reward_config : RewardConfig = RewardConfig(), return_delta_score = False):
-    reward_fn = RewardMathFn(reward_config)
-    reward_response = reward_fn(RewardInput(problem=solution_str, problem_type=RewardType.MATH, model_response=solution_str, ground_truth={"answer": ground_truth}), ignore_think_token=ignore_think_token)
-    # Compute number of words in solution_str
-    if not reward_config.linear_reward and not reward_config.multiplier_reward and not reward_config.sigmoid_reward: 
-        return reward_response.is_correct
+def math_reward_fn(
+    solution_str: str,
+    ground_truth: Union[str, List[str]],
+    num_tokens: int = -1,
+    valid_response_length: int = -1,
+    ignore_think_token: bool = False,
+    reward_config: RewardConfig = RewardConfig(),
+    return_delta_score: bool = False
+) -> Union[float, tuple[float, float]]:
+    """
+    Reward = correctness (binary)
+           + length-based delta
+           with optional multiplier or additive logic
+           and an L1-style hedging penalty on the delta component.
 
+    Maintains nested branching for `multiplier_reward` and `return_delta_score`.
+    """
+    # --- 1) Compute binary correctness ---
+    reward_fn = RewardMathFn(reward_config)
+    reply = reward_fn(
+        RewardInput(
+            problem=solution_str,
+            problem_type=RewardType.MATH,
+            model_response=solution_str,
+            ground_truth={"answer": ground_truth}
+        ),
+        ignore_think_token=ignore_think_token
+    )
+    correctness_score = 1.0 if reply.is_correct else 0.0
+
+    # --- 2) Compute hedging delta ---
+    hedge_count = count_hedging_markers(solution_str)
+    # choose linear or sigmoid hedging delta
+    if reward_config.sigmoid_reward:
+        delta_hedge = get_delta_score_hedge_sigmoid(hedge_count, reward_config.beta)
+    else:
+        delta_hedge = get_delta_score_hedge_linear(hedge_count, reward_config.beta)
+
+    # --- 3) If no shaped reward flags, return raw correctness --- If no shaped reward flags, return raw correctness ---
+    if not (reward_config.linear_reward or reward_config.multiplier_reward or reward_config.sigmoid_reward):
+        return reply.is_correct
+
+    # --- 4) Compute length-based delta (existing logic) ---
     if num_tokens != -1:
         if num_tokens < 0:
-            # LCPO-Max
             if reward_config.sigmoid_reward:
-                delta_score = get_delta_score_sigmoid(num_tokens, float(valid_response_length), reward_config.alpha)
+                delta_score = get_delta_score_sigmoid(
+                    num_tokens, float(valid_response_length), reward_config.alpha
+                )
             else:
-                delta_score = get_delta_score_linear_both(num_tokens, float(valid_response_length), reward_config.alpha)
+                delta_score = get_delta_score_linear_both(
+                    num_tokens, float(valid_response_length), reward_config.alpha
+                )
         else:
-            # LCPO-Exact
             if reward_config.sigmoid_reward:
-                delta_score = get_delta_score_sigmoid_exact(num_tokens, float(valid_response_length), reward_config.alpha)
+                delta_score = get_delta_score_sigmoid_exact(
+                    num_tokens, float(valid_response_length), reward_config.alpha
+                )
             else:
-                delta_score = get_delta_score_linear(num_tokens, float(valid_response_length), reward_config.alpha)
-        print(f"delta_score: {delta_score}, reward_response.is_correct: {reward_response.is_correct}, num_tokens: {num_tokens}, valid_response_length: {valid_response_length}")
-        correctness_score = 0 if not reward_response.is_correct else 1
-        if reward_config.multiplier_reward:
-            if return_delta_score:
-                return max(0, delta_score) * correctness_score, delta_score
-            else:
-                return max(0, delta_score) * correctness_score
-        else:
-            if return_delta_score:
-                return delta_score + correctness_score, delta_score
-            else:
-                return delta_score + correctness_score
+                delta_score = get_delta_score_linear(
+                    num_tokens, float(valid_response_length), reward_config.alpha
+                )
     else:
-        return reward_response.is_correct
+        delta_score = 0.0
+
+    # --- 5) Apply hedging delta to length-based delta ---
+    penalized_delta = delta_score + delta_hedge
+
+    # --- 6) Combine with correctness using nested multiplier/additive branches ---) Combine with correctness using nested multiplier/additive branches ---
+    if reward_config.multiplier_reward:
+        # multiplier logic
+        if return_delta_score:
+            # return (reward, raw_delta)
+            return max(0.0, penalized_delta) * correctness_score, delta_score
+        else:
+            return max(0.0, penalized_delta) * correctness_score
+    else:
+        # additive logic
+        if return_delta_score:
+            return (penalized_delta + correctness_score), delta_score
+        else:
+            return penalized_delta + correctness_score
 
 def majority_at_k(generations: List[str], ground_truths: Union[str, List[str]], k: int = -1, problem: str = "", enable_llm: bool = False, ignore_think_token: bool = False, shuffle: bool = False) -> str:
     """
