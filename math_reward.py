@@ -199,19 +199,6 @@ def math_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], num_t
     else:
         return reward_response.is_correct
 
-        
-    # 5) Combine deltas
-    penalized_delta = delta_score + delta_hedge
-
-    # 6) Combine with correctness and clamp
-    if reward_config.multiplier_reward:
-        final = max(0.0, penalized_delta) * correctness_score
-    else:
-        final = penalized_delta + correctness_score
-
-    if return_delta_score:
-        return final, delta_len
-    return final
 
 
 # --- majority_at_k (unchanged) ---
