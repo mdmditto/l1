@@ -145,15 +145,8 @@ def gpqa_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], enabl
 
 # --- Updated math_reward_fn ---
 
-def math_reward_fn(
-    solution_str: str,
-    ground_truth: Union[str, List[str]],
-    num_tokens: int = -1,
-    valid_response_length: int = -1,
-    ignore_think_token: bool = False,
-    reward_config: RewardConfig = RewardConfig(),
-    return_delta_score: bool = False
-) -> Union[float, tuple[float, float]]:
+def math_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], num_tokens: int = -1, valid_response_length: int = -1, ignore_think_token: bool = False, reward_config: RewardConfig = RewardConfig(),
+    return_delta_score: bool = False) -> Union[float, tuple[float, float]]:
     """
     Reward = correctness (binary)
            + length-based delta
@@ -161,17 +154,8 @@ def math_reward_fn(
            + hedging delta
     """
     # 1) Correctness
-    base_fn = RewardMathFn(reward_config)
-    out = base_fn(
-        RewardInput(
-            problem=solution_str,
-            problem_type=RewardType.MATH,
-            model_response=solution_str,
-            ground_truth={"answer": ground_truth}
-        ),
-        ignore_think_token=ignore_think_token
-    )
-    correctness_score = 1.0 if out.is_correct else 0.0
+    reward_fn = RewardMathFn(reward_config)
+    reward_response = reward_fn(RewardInput(problem=solution_str, problem_type=RewardType.MATH, model_response=solution_str, ground_truth={"answer": ground_truth}), ignore_think_token=ignore_think_token)
 
     # 2) Hedging delta
     hcount = count_hedging_markers(solution_str)
@@ -181,35 +165,49 @@ def math_reward_fn(
         delta_hedge = get_delta_score_hedge_linear(hcount, reward_config.beta)
 
     # 3) Raw correctness branch
-    if not (reward_config.linear_reward or reward_config.multiplier_reward or reward_config.sigmoid_reward):
-        return float(out.is_correct)
+     # Compute number of words in solution_str
+    if not reward_config.linear_reward and not reward_config.multiplier_reward and not reward_config.sigmoid_reward: 
+        return reward_response.is_correct
 
     # 4) Length-based delta
     if num_tokens != -1:
         if num_tokens < 0:
-            delta_len = (
-                get_delta_score_sigmoid(num_tokens, valid_response_length, reward_config.alpha)
-                if reward_config.sigmoid_reward else
-                get_delta_score_linear_both(num_tokens, valid_response_length, reward_config.alpha)
-            )
+            # LCPO-Max
+            if reward_config.sigmoid_reward:
+                delta_score = get_delta_score_sigmoid(num_tokens, float(valid_response_length), reward_config.alpha)
+            else:
+                get_delta_score_linear_both(num_tokens, float(valid_response_length), reward_config.alpha)
         else:
-            delta_len = (
-                get_delta_score_sigmoid_exact(num_tokens, valid_response_length, reward_config.alpha)
-                if reward_config.sigmoid_reward else
-                get_delta_score_linear(num_tokens, valid_response_length, reward_config.alpha)
-            )
+            # LCPO-Exact
+            if reward_config.sigmoid_reward:
+                delta_score = get_delta_score_sigmoid_exact(num_tokens, float(valid_response_length), reward_config.alpha)
+            else:
+                delta_score=get_delta_score_linear(num_tokens, float(valid_response_length), reward_config.alpha)
+        print(f"delta_score: {delta_score}, reward_response.is_correct: {reward_response.is_correct}, num_tokens: {num_tokens}, valid_response_length: {valid_response_length}")
+        correctness_score = 0 if not reward_response.is_correct else 1
+        penalized_delta = delta_score + delta_hedge
+        if reward_config.multiplier_reward:
+            if return_delta_score:
+                return max(0, penalized_delta) * correctness_score, penalized_delta
+            else:
+                return max(0, penalized_delta) * correctness_score
+        else:
+            if return_delta_score:
+                return penalized_delta + correctness_score, penalized_delta
+            else:
+                return penalized_delta + correctness_score
     else:
-        delta_len = 0.0
+        return reward_response.is_correct
 
+        
     # 5) Combine deltas
-    penalized_delta = delta_len + delta_hedge
+    penalized_delta = delta_score + delta_hedge
 
     # 6) Combine with correctness and clamp
     if reward_config.multiplier_reward:
         final = max(0.0, penalized_delta) * correctness_score
     else:
         final = penalized_delta + correctness_score
-    final = max(0.0, min(1.0, final))
 
     if return_delta_score:
         return final, delta_len
