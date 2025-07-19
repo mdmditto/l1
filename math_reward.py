@@ -24,52 +24,60 @@ class RewardMathFn(RewardFn):
     the reward based on the correctness of the provided answer compared to the ground truth.
     """
 
-    def __call__(self, input: RewardInput, ignore_think_token: bool = False) -> RewardOutput:
+    def __call__(self, input: RewardInput, ignore_think_token = False) -> RewardOutput:
         assert input.problem_type == RewardType.MATH, \
-            f"Invalid problem type: expected 'MATH', but got '{input.problem_type}'"
-
+            "Invalid problem type: expected 'MATH', but got '{}'".format(input.problem_type)
+        
+        problem = input.problem
         model_response = input.model_response
-
-        # 1) Extract the "solution" portion (after any CoT tags)
+        
+        # Extract solution.
         if THOUGHT_DELIMITER_START in model_response and THOUGHT_DELIMITER_END in model_response:
-            response_text = model_response.split(THOUGHT_DELIMITER_END, 1)[1].strip()
+            model_solution = model_response.split(THOUGHT_DELIMITER_END)[1]
         elif THOUGHT_DELIMITER_END in model_response:
-            response_text = model_response.split(THOUGHT_DELIMITER_END, 1)[1].strip()
+            model_solution = model_response.split(THOUGHT_DELIMITER_END)[1]
         else:
             if not ignore_think_token:
                 return RewardOutput(reward=self.config.format_error_reward, is_correct=False)
-            response_text = model_response.strip()
-
-        # 2) Extract the final answer
-        model_answer = extract_answer(response_text)
+            else:
+                model_solution = model_response
+        
+        model_answer = extract_answer(model_solution)
         if model_answer is None:
             return RewardOutput(reward=self.config.format_error_reward, is_correct=False)
 
-        # 3) Normalize ground truths
+        # Process the ground truth(s)
         ground_truths = input.ground_truth.get("answer", None)
         if ground_truths is None:
             return RewardOutput(reward=self.config.unk_error_reward, is_correct=False)
+        
+        # Convert single answer to list for uniform processing
         if isinstance(ground_truths, (str, float, int)):
             ground_truths = [ground_truths]
-
-        processed_gt: List[str] = []
+            
+        # Process each ground truth
+        processed_ground_truths = []
         for truth in ground_truths:
             truth = str(truth)
             if "\\boxed" in truth:
-                ext = extract_answer(truth)
-                if ext:
-                    processed_gt.append(ext)
+                processed_truth = extract_answer(truth)
+                if processed_truth is not None:
+                    processed_ground_truths.append(processed_truth)
             else:
-                processed_gt.append(truth)
-        if not processed_gt:
+                processed_ground_truths.append(truth)
+        
+        if not processed_ground_truths:
             return RewardOutput(reward=self.config.unk_error_reward, is_correct=False)
 
-        # 4) Check correctness
-        for gt in processed_gt:
-            if grade_answer_mathd(model_answer, gt) or grade_answer_sympy(model_answer, gt):
+        # Check against all possible correct answers
+        for ground_truth in processed_ground_truths:
+            is_correct = grade_answer_mathd(model_answer, ground_truth) or grade_answer_sympy(model_answer, ground_truth)
+            if is_correct:
                 return RewardOutput(reward=self.config.correct_reward, is_correct=True)
 
+     
         return RewardOutput(reward=self.config.incorrect_reward, is_correct=False)
+
 
 
 # --- Length delta functions ---
