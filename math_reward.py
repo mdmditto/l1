@@ -176,7 +176,7 @@ def math_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], num_t
             if reward_config.sigmoid_reward:
                 delta_score = get_delta_score_sigmoid(num_tokens, float(valid_response_length), reward_config.alpha)
             else:
-                get_delta_score_linear_both(num_tokens, float(valid_response_length), reward_config.alpha)
+                delta_score=get_delta_score_linear_both(num_tokens, float(valid_response_length), reward_config.alpha)
         else:
             # LCPO-Exact
             if reward_config.sigmoid_reward:
@@ -185,17 +185,16 @@ def math_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], num_t
                 delta_score=get_delta_score_linear(num_tokens, float(valid_response_length), reward_config.alpha)
         print(f"delta_score: {delta_score}, reward_response.is_correct: {reward_response.is_correct}, num_tokens: {num_tokens}, valid_response_length: {valid_response_length}")
         correctness_score = 0 if not reward_response.is_correct else 1
-        penalized_delta = delta_score + delta_hedge
         if reward_config.multiplier_reward:
             if return_delta_score:
-                return max(0, penalized_delta) * correctness_score, penalized_delta
+                return max(0, delta_score * delta_hedge) * correctness_score, delta_score * delta_hedge
             else:
-                return max(0, penalized_delta) * correctness_score
+                return max(0, delta_score * delta_hedge) * correctness_score
         else:
             if return_delta_score:
-                return penalized_delta + correctness_score, penalized_delta
+                return delta_score + delta_hedge + correctness_score, delta_score + delta_hedge
             else:
-                return penalized_delta + correctness_score
+                return delta_score + delta_hedge + correctness_score
     else:
         return reward_response.is_correct
 
