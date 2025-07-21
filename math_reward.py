@@ -152,15 +152,15 @@ def math_reward_fn(
     ignore_think_token: bool = False,
     reward_config: RewardConfig = RewardConfig(),
     return_delta_score: bool = False
-) -> Union[float, Tuple[float, float]]:
+) -> Union[float, Tuple[float, float]]:  # Simplified return type
     """
-    Computes: reward = correctness × length_delta × hedge_delta  (multiplicative)
-              OR correctness + length_delta + hedge_delta (additive)
-    
-    Where:
-    - correctness = 𝟙(y = y_gold)
-    - length_delta = f(|n_gold - n|) via delta functions
-    - hedge_delta = g(h(y)) via delta functions
+    Computes reward with:
+    - Correctness (binary)
+    - Length penalty (via delta functions)
+    - Hedging penalty (via delta functions)
+    Returns either:
+    - Single reward value (when return_delta_score=False)
+    - Tuple of (reward, combined_delta) (when return_delta_score=True)
     """
     # 1) Compute correctness
     reward_fn = RewardMathFn(reward_config)
@@ -176,29 +176,21 @@ def math_reward_fn(
     correctness = float(reward_response.is_correct)
 
     # 2) Compute length delta
-    length_delta = 1.0  # Default if no length penalty
+    length_delta = 1.0
     if num_tokens != -1:
         if num_tokens < 0:
             if reward_config.sigmoid_reward:
-                length_delta = get_delta_score_sigmoid(
-                    num_tokens, valid_response_length, reward_config.alpha
-                )
+                length_delta = get_delta_score_sigmoid(num_tokens, valid_response_length, reward_config.alpha)
             else:
-                length_delta = get_delta_score_linear_both(
-                    num_tokens, valid_response_length, reward_config.alpha
-                )
+                length_delta = get_delta_score_linear_both(num_tokens, valid_response_length, reward_config.alpha)
         else:
             if reward_config.sigmoid_reward:
-                length_delta = get_delta_score_sigmoid_exact(
-                    num_tokens, valid_response_length, reward_config.alpha
-                )
+                length_delta = get_delta_score_sigmoid_exact(num_tokens, valid_response_length, reward_config.alpha)
             else:
-                length_delta = get_delta_score_linear(
-                    num_tokens, valid_response_length, reward_config.alpha
-                )
+                length_delta = get_delta_score_linear(num_tokens, valid_response_length, reward_config.alpha)
 
     # 3) Compute hedging delta
-    hedge_delta = 1.0  # Default if no hedging penalty
+    hedge_delta = 1.0
     if hasattr(reward_config, 'beta'):
         hedge_count = count_hedging_markers(solution_str)
         if reward_config.sigmoid_reward:
@@ -212,9 +204,11 @@ def math_reward_fn(
     else:
         final_reward = correctness + (length_delta - 1) + (hedge_delta - 1)
 
-    # Return logic
+    # 5) Return logic
     if return_delta_score:
-        return final_reward, (length_delta, hedge_delta)
+        # Return single combined delta value instead of tuple
+        combined_delta = length_delta * hedge_delta if reward_config.multiplier_reward else (length_delta + hedge_delta - 2)
+        return final_reward, combined_delta
     return final_reward
 
 
