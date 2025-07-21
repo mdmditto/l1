@@ -167,7 +167,7 @@ def math_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], num_t
     # 3) Raw correctness branch
      # Compute number of words in solution_str
     if not reward_config.linear_reward and not reward_config.multiplier_reward and not reward_config.sigmoid_reward: 
-        return reward_response.is_correct
+        return float(reward_response.is_correct)
 
     # 4) Length-based delta
     if num_tokens != -1:
