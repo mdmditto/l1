@@ -3,7 +3,7 @@ This module contains the RewardMathFn class, which evaluates mathematical answer
 and assigns rewards based on their correctness. It provides token-efficiency and
 hedging penalties via delta functions.
 """
-from typing import List, Union
+from typing import List, Union, Tuple
 import re
 
 from rewards_types import RewardConfig, RewardFn, RewardInput, RewardOutput, RewardType
