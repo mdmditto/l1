@@ -144,59 +144,78 @@ def gpqa_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], enabl
 
 
 # --- Updated math_reward_fn ---
-
-def math_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], num_tokens: int = -1, valid_response_length: int = -1, ignore_think_token: bool = False, reward_config: RewardConfig = RewardConfig(),
-    return_delta_score: bool = False) -> Union[float, tuple[float, float]]:
+def math_reward_fn(
+    solution_str: str,
+    ground_truth: Union[str, List[str]],
+    num_tokens: int = -1,
+    valid_response_length: int = -1,
+    ignore_think_token: bool = False,
+    reward_config: RewardConfig = RewardConfig(),
+    return_delta_score: bool = False
+) -> Union[float, Tuple[float, float]]:
     """
-    Reward = correctness (binary)
-           + length-based delta
-           (multiplier or additive)
-           + hedging delta
+    Computes: reward = correctness × length_delta × hedge_delta  (multiplicative)
+              OR correctness + length_delta + hedge_delta (additive)
+    
+    Where:
+    - correctness = 𝟙(y = y_gold)
+    - length_delta = f(|n_gold - n|) via delta functions
+    - hedge_delta = g(h(y)) via delta functions
     """
-    # 1) Correctness
+    # 1) Compute correctness
     reward_fn = RewardMathFn(reward_config)
-    reward_response = reward_fn(RewardInput(problem=solution_str, problem_type=RewardType.MATH, model_response=solution_str, ground_truth={"answer": ground_truth}), ignore_think_token=ignore_think_token)
+    reward_response = reward_fn(
+        RewardInput(
+            problem=solution_str,
+            problem_type=RewardType.MATH,
+            model_response=solution_str,
+            ground_truth={"answer": ground_truth}
+        ),
+        ignore_think_token=ignore_think_token
+    )
+    correctness = float(reward_response.is_correct)
 
-    # 2) Hedging delta
-    hcount = count_hedging_markers(solution_str)
-    if reward_config.sigmoid_reward:
-        delta_hedge = get_delta_score_hedge_sigmoid(hcount, reward_config.beta)
-    else:
-        delta_hedge = get_delta_score_hedge_linear(hcount, reward_config.beta)
-
-    # 3) Raw correctness branch
-     # Compute number of words in solution_str
-    if not reward_config.linear_reward and not reward_config.multiplier_reward and not reward_config.sigmoid_reward: 
-        return float(reward_response.is_correct)
-
-    # 4) Length-based delta
+    # 2) Compute length delta
+    length_delta = 1.0  # Default if no length penalty
     if num_tokens != -1:
         if num_tokens < 0:
-            # LCPO-Max
             if reward_config.sigmoid_reward:
-                delta_score = get_delta_score_sigmoid(num_tokens, float(valid_response_length), reward_config.alpha)
+                length_delta = get_delta_score_sigmoid(
+                    num_tokens, valid_response_length, reward_config.alpha
+                )
             else:
-                delta_score=get_delta_score_linear_both(num_tokens, float(valid_response_length), reward_config.alpha)
+                length_delta = get_delta_score_linear_both(
+                    num_tokens, valid_response_length, reward_config.alpha
+                )
         else:
-            # LCPO-Exact
             if reward_config.sigmoid_reward:
-                delta_score = get_delta_score_sigmoid_exact(num_tokens, float(valid_response_length), reward_config.alpha)
+                length_delta = get_delta_score_sigmoid_exact(
+                    num_tokens, valid_response_length, reward_config.alpha
+                )
             else:
-                delta_score=get_delta_score_linear(num_tokens, float(valid_response_length), reward_config.alpha)
-        print(f"delta_score: {delta_score}, reward_response.is_correct: {reward_response.is_correct}, num_tokens: {num_tokens}, valid_response_length: {valid_response_length}")
-        correctness_score = 0 if not reward_response.is_correct else 1
-        if reward_config.multiplier_reward:
-            if return_delta_score:
-                return max(0, delta_score * delta_hedge) * correctness_score, delta_score * delta_hedge
-            else:
-                return max(0, delta_score * delta_hedge) * correctness_score
+                length_delta = get_delta_score_linear(
+                    num_tokens, valid_response_length, reward_config.alpha
+                )
+
+    # 3) Compute hedging delta
+    hedge_delta = 1.0  # Default if no hedging penalty
+    if hasattr(reward_config, 'beta'):
+        hedge_count = count_hedging_markers(solution_str)
+        if reward_config.sigmoid_reward:
+            hedge_delta = get_delta_score_hedge_sigmoid(hedge_count, reward_config.beta)
         else:
-            if return_delta_score:
-                return delta_score + delta_hedge + correctness_score, delta_score + delta_hedge
-            else:
-                return delta_score + delta_hedge + correctness_score
+            hedge_delta = get_delta_score_hedge_linear(hedge_count, reward_config.beta)
+
+    # 4) Combine components
+    if reward_config.multiplier_reward:
+        final_reward = correctness * length_delta * hedge_delta
     else:
-        return reward_response.is_correct
+        final_reward = correctness + (length_delta - 1) + (hedge_delta - 1)
+
+    # Return logic
+    if return_delta_score:
+        return final_reward, (length_delta, hedge_delta)
+    return final_reward
 
 
 
