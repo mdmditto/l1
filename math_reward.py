@@ -227,14 +227,6 @@ def math_reward_fn(
         final_reward = (correctness + length_delta + confidence_delta) / 3
         combined_delta = (length_delta + confidence_delta) / 2
 
-    # 6) Debug logging
-    if reward_config.debug:
-        print(
-            f"Reward Components - Correct: {correctness:.2f}, "
-            f"Length: {length_delta:.2f}, "
-            f"Confidence: {confidence_delta:.2f}, "
-            f"Final: {final_reward:.2f}"
-        )
 
     # 7) Return based on flags
     if return_delta_score:
