@@ -152,17 +152,19 @@ def math_reward_fn(
     ignore_think_token: bool = False,
     reward_config: RewardConfig = RewardConfig(),
     return_delta_score: bool = False
-) -> Union[float, Tuple[float, float]]:  # Simplified return type
+) -> Union[float, Tuple[float, float]]:
     """
-    Computes reward with:
-    - Correctness (binary)
-    - Length penalty (via delta functions)
-    - Hedging penalty (via delta functions)
-    Returns either:
-    - Single reward value (when return_delta_score=False)
-    - Tuple of (reward, combined_delta) (when return_delta_score=True)
+    Enhanced reward function with:
+    - Balanced reward components (correctness, length efficiency, confidence)
+    - Stable gradients through proper normalization
+    - Configurable reward composition
+    - Debugging information
+    
+    Reward Composition Options:
+    - Multiplicative: correctness × length_delta × confidence_delta ∈ [0,1]
+    - Additive: (correctness + length_delta + confidence_delta)/3 ∈ [0,1]
     """
-    # 1) Compute correctness
+    # 1) Compute correctness (binary)
     reward_fn = RewardMathFn(reward_config)
     reward_response = reward_fn(
         RewardInput(
@@ -175,39 +177,67 @@ def math_reward_fn(
     )
     correctness = float(reward_response.is_correct)
 
-    # 2) Compute length delta
-    length_delta = 1.0
-    if num_tokens != -1:
-        if num_tokens < 0:
-            if reward_config.sigmoid_reward:
-                length_delta = get_delta_score_sigmoid(num_tokens, valid_response_length, reward_config.alpha)
-            else:
-                length_delta = get_delta_score_linear_both(num_tokens, valid_response_length, reward_config.alpha)
-        else:
-            if reward_config.sigmoid_reward:
-                length_delta = get_delta_score_sigmoid_exact(num_tokens, valid_response_length, reward_config.alpha)
-            else:
-                length_delta = get_delta_score_linear(num_tokens, valid_response_length, reward_config.alpha)
-
-    # 3) Compute hedging delta
-    hedge_delta = 1.0
-    if hasattr(reward_config, 'beta'):
+    # 2) Compute confidence delta (anti-hedging) ∈ [0,1]
+    confidence_delta = 1.0
+    if hasattr(reward_config, 'beta') and reward_config.beta > 0:
         hedge_count = count_hedging_markers(solution_str)
         if reward_config.sigmoid_reward:
-            hedge_delta = get_delta_score_hedge_sigmoid(hedge_count, reward_config.beta)
+            confidence_delta = get_delta_score_hedge_sigmoid(
+                hedge_count, 
+                min(reward_config.beta, 0.1)  # Cap beta at 0.1 for stability
+            )
         else:
-            hedge_delta = get_delta_score_hedge_linear(hedge_count, reward_config.beta)
+            confidence_delta = get_delta_score_hedge_linear(
+                hedge_count,
+                min(reward_config.beta, 0.1)
+            )
 
-    # 4) Combine components
+    # 3) Short-circuit if only correctness is needed
+    if not any([reward_config.linear_reward, 
+                reward_config.multiplier_reward, 
+                reward_config.sigmoid_reward]):
+        if return_delta_score:
+            return correctness, 1.0  # Neutral delta
+        return correctness
+
+    # 4) Compute length efficiency delta ∈ [0,1]
+    length_delta = 1.0
+    if num_tokens != -1 and hasattr(reward_config, 'alpha'):
+        alpha = min(reward_config.alpha, 0.01)  # Cap alpha for stability
+        if num_tokens < 0:  # LCPO-Max mode
+            length_delta = (
+                get_delta_score_sigmoid(num_tokens, valid_response_length, alpha)
+                if reward_config.sigmoid_reward
+                else get_delta_score_linear_both(num_tokens, valid_response_length, alpha)
+            )
+        else:  # LCPO-Exact mode
+            length_delta = (
+                get_delta_score_sigmoid_exact(num_tokens, valid_response_length, alpha)
+                if reward_config.sigmoid_reward
+                else get_delta_score_linear(num_tokens, valid_response_length, alpha)
+            )
+
+    # 5) Combine components with normalization
     if reward_config.multiplier_reward:
-        final_reward = correctness * length_delta * hedge_delta
+        # Multiplicative composition ∈ [0,1]
+        final_reward = correctness * length_delta * confidence_delta
+        combined_delta = length_delta * confidence_delta
     else:
-        final_reward = correctness + (length_delta - 1) + (hedge_delta - 1)
+        # Additive composition ∈ [0,1]
+        final_reward = (correctness + length_delta + confidence_delta) / 3
+        combined_delta = (length_delta + confidence_delta) / 2
 
-    # 5) Return logic
+    # 6) Debug logging
+    if reward_config.debug:
+        print(
+            f"Reward Components - Correct: {correctness:.2f}, "
+            f"Length: {length_delta:.2f}, "
+            f"Confidence: {confidence_delta:.2f}, "
+            f"Final: {final_reward:.2f}"
+        )
+
+    # 7) Return based on flags
     if return_delta_score:
-        # Return single combined delta value instead of tuple
-        combined_delta = length_delta * hedge_delta if reward_config.multiplier_reward else (length_delta + hedge_delta - 2)
         return final_reward, combined_delta
     return final_reward
 
