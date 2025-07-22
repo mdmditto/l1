@@ -196,9 +196,7 @@ def math_reward_fn(
     if not any([reward_config.linear_reward, 
                 reward_config.multiplier_reward, 
                 reward_config.sigmoid_reward]):
-        if return_delta_score:
-            return correctness, 1.0  # Neutral delta
-        return correctness
+        return float(correctness)
 
     # 4) Compute length efficiency delta ∈ [0,1]
     length_delta = 1.0
