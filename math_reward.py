@@ -166,9 +166,10 @@ def math_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], num_t
     # 3) Raw correctness branch
      # Compute number of words in solution_str
     if not reward_config.linear_reward and not reward_config.multiplier_reward and not reward_config.sigmoid_reward: 
-        return float(reward_response.is_correct)
+        return float(reward_response.is_correct) * delta_hedge
 
     # 4) Length-based delta
+    length_delta = 1.0
     if num_tokens != -1:
         if num_tokens < 0:
             # LCPO-Max
@@ -191,11 +192,15 @@ def math_reward_fn(solution_str: str, ground_truth: Union[str, List[str]], num_t
                 return max(0, delta_score * delta_hedge) * correctness_score
         else:
             if return_delta_score:
-                return delta_score + delta_hedge + correctness_score, delta_score + delta_hedge
+                raw = correctness_score + delta_score + delta_hedge
+                final = max(0.0, min(1.0, raw / 3.0))
+                return final, (delta_score + delta_hedge)/2
             else:
-                return delta_score + delta_hedge + correctness_score
+                raw = correctness_score + delta_score + delta_hedge
+                final = max(0.0, min(1.0, raw / 3.0))
+                return final
     else:
-        return reward_response.is_correct
+        return float(reward_response.is_correct)
 
 
 # --- majority_at_k (unchanged) ---
