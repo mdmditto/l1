@@ -118,6 +118,10 @@ def main(config):
     ray.get(main_task.remote(config))
     # breakpoint()
 
+print("HYDRA CONFIG: actor_rollout_ref.hybrid_engine =", config.actor_rollout_ref.hybrid_engine)
+print("HYDRA CONFIG: actor_rollout_ref.rollout.name    =", config.actor_rollout_ref.rollout.name)
+print("HYDRA CONFIG: rollout.vllm_config                =", config.actor_rollout_ref.rollout.vllm_config)
+
 
 @ray.remote
 def main_task(config):
