@@ -110,6 +110,9 @@ import hydra
 
 @hydra.main(config_path='config', config_name='ppo_trainer', version_base=None)
 def main(config):
+    print("HYDRA CONFIG: actor_rollout_ref.hybrid_engine =", config.actor_rollout_ref.hybrid_engine)
+    print("HYDRA CONFIG: actor_rollout_ref.rollout.name    =", config.actor_rollout_ref.rollout.name)
+    print("HYDRA CONFIG: rollout.vllm_config                =", config.actor_rollout_ref.rollout.vllm_config)
     if not ray.is_initialized():
         # this is for local ray cluster
         # ray.init(runtime_env={"env_vars": {"RAY_DEBUG": "legacy"}})
@@ -118,9 +121,7 @@ def main(config):
     ray.get(main_task.remote(config))
     # breakpoint()
 
-print("HYDRA CONFIG: actor_rollout_ref.hybrid_engine =", config.actor_rollout_ref.hybrid_engine)
-print("HYDRA CONFIG: actor_rollout_ref.rollout.name    =", config.actor_rollout_ref.rollout.name)
-print("HYDRA CONFIG: rollout.vllm_config                =", config.actor_rollout_ref.rollout.vllm_config)
+
 
 
 @ray.remote
