@@ -116,7 +116,7 @@ def main(config):
     if not ray.is_initialized():
         # this is for local ray cluster
         # ray.init(runtime_env={"env_vars": {"RAY_DEBUG": "legacy"}})
-        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}})
+        ray.init(runtime_env={'env_vars': {'TOKENIZERS_PARALLELISM': 'true', 'NCCL_DEBUG': 'WARN'}, 'pip': ['vllm>=0.9.2', 'xformers'],})
 
     ray.get(main_task.remote(config))
     # breakpoint()
