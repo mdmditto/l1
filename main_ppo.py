@@ -137,37 +137,6 @@ def main_task(config):
     from omegaconf import OmegaConf
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
-    runtime_env = {
-        "env_vars": {
-            "TOKENIZERS_PARALLELISM": "true",
-            "NCCL_DEBUG": "WARN"
-        },
-        "pip": [
-            "vllm>=0.9.2",
-            "xformers"
-        ],
-    }
-
-    # Now define your worker mapping using that runtime_env
-    from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
-
-    role_worker_mapping = {
-        # Each of these remote actors will `pip install vllm xformers` on startup
-        Role.ActorRollout: ray.remote(runtime_env=runtime_env)(ActorRolloutRefWorker),
-        Role.Critic:       ray.remote(runtime_env=runtime_env)(CriticWorker),
-        Role.RefPolicy:    ray.remote(runtime_env=runtime_env)(ActorRolloutRefWorker),
-    }
-    # --------------------------------------------------------------------------------
-
-    global_pool_id = 'global_pool'
-    resource_pool_spec = {
-        global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
-    }
-    mapping = {
-        Role.ActorRollout: global_pool_id,
-        Role.Critic:       global_pool_id,
-        Role.RefPolicy:    global_pool_id,
-    }
 
 
     print(config.reward_config.alpha)
@@ -194,6 +163,20 @@ def main_task(config):
 
     else:
         raise NotImplementedError
+
+    # --- Now that ActorRolloutRefWorker & CriticWorker are in scope, set up runtime_env + mapping ---
+    runtime_env = {
+        "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"},
+        "pip": ["vllm>=0.9.2", "xformers"],
+    }
+
+    from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
+
+    role_worker_mapping = {
+        Role.ActorRollout: ray.remote(runtime_env=runtime_env)(ActorRolloutRefWorker),
+        Role.Critic:       ray.remote(runtime_env=runtime_env)(CriticWorker),
+        Role.RefPolicy:    ray.remote(runtime_env=runtime_env)(ActorRolloutRefWorker),
+    }
 
     from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
