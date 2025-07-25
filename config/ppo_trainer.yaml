@@ -171,6 +171,7 @@ reward_model:
   enable: False
   strategy: fsdp
   model:
+    launch_reward_fn_async: False
     input_tokenizer: ${actor_rollout_ref.model.path}  # set this to null if the chat template is identical
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
