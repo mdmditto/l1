@@ -229,6 +229,7 @@ trainer:
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
   max_actor_ckpt_to_keep: null
   max_critic_ckpt_to_keep: null
+  profile_steps: null
 
 reward_config:
   alpha: 0.01
